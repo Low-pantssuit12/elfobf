@@ -6,7 +6,6 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-blue?logo=linux&logoColor=white)](https://www.linux.org/)
 [![Language](https://img.shields.io/badge/language-Python%203-3776AB?logo=python)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Release](https://img.shields.io/badge/release-v1.0.0-brightgreen)](https://github.com/vk-candpython/elfobf/releases/tag/v1.0.0)
 
 *Advanced ELF binary protection — Compress, Encrypt, Polymorph, Fileless Execute*
 
