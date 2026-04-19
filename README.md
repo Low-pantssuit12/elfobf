@@ -751,6 +751,6 @@ python3 elfobf.py /bin/ls
 
 **[⬆ Back to Top](#-elf-obf)**
 
-*Military-Grade ELF Protection for Linux*
+*ELF Obfuscation for Linux*
 
 </div>
