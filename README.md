@@ -46,25 +46,25 @@
 
 ## 📋 Overview
 
-**ELF-OBF** is a **military-grade** ELF binary obfuscation tool that transforms standard Linux executables into **heavily armored, self-decrypting, fileless-executing binaries**.
+**ELF-OBF** is a military-grade ELF binary obfuscation tool that transforms standard Linux executables into heavily armored, self-decrypting, fileless-executing binaries.
 
 ### What makes it unique?
 
 | Component | Implementation |
 |-----------|----------------|
-| **Single SYSCALL Macro** | One unified `SYSCALL(n, a1...a6)` for ALL system calls |
-| **Obfuscated Syscall Numbers** | XORed with random key at compile-time |
+| **Single SYSCALL Macro** | One unified macro for ALL system calls — reduces code size, centralizes obfuscation |
+| **Obfuscated Syscall Numbers** | XORed with random key at compile-time — no plaintext syscall numbers in binary |
 | **Shifted Syscall Numbers** | `memfd_create` and `execveat` are bit-shifted by random amounts |
-| **RLE Compression** | Custom byte-level run-length encoding |
-| **XOR Stream Cipher** | 16-128 byte key + salt + feedback mechanism |
-| **Polymorphic C Stub** | 100% unique per build (4-254 char random identifiers) |
-| **Dead Code Injection** | 25+ ASM patterns + 15+ register operation patterns |
-| **SSTRIP Integration** | Embedded pre-compiled SSTRIP binary (removes section headers) |
+| **RLE Compression** | Custom byte-level run-length encoding — typical 30-60% size reduction |
+| **XOR Stream Cipher** | 16-128 byte key + salt + feedback mechanism — each byte depends on all previous |
+| **Polymorphic C Stub** | 100% unique per build — random identifiers from 129-char alphabet |
+| **Dead Code Injection** | 150+ combinatorial ASM patterns + random C junk statements |
+| **SSTRIP Integration** | Embedded pre-compiled SSTRIP binary — removes section headers completely |
 | **Polyglot Signatures** | 27 different file format headers injected |
-| **Fileless Execution** | `memfd_create` + `execveat` with `AT_EMPTY_PATH` |
+| **Fileless Execution** | `memfd_create` + `execveat` with `AT_EMPTY_PATH` — zero disk trace |
 | **Anti-Debug** | TracerPid check + PR_SET_PTRACER + PR_SET_DUMPABLE |
-| **Memory Protection** | mlockall(MCL_ALL) + F_SEAL_ALL |
-| **Highly Optimized Builder** | Memoryviews, pre-compiled SSTRIP, single-pass compression |
+| **Memory Protection** | mlockall(MCL_ALL) + F_SEAL_ALL — prevents swapping and memory modification |
+| **Highly Optimized Builder** | Memoryviews, pre-compiled SSTRIP, single-pass compression, GC control |
 
 ## ✨ Features
 
@@ -73,9 +73,9 @@
 | Feature | Description |
 |---------|-------------|
 | 🗜️ **RLE Compression** | Byte-level RLE with 0x80 repeat flag, typical 30-60% reduction |
-| 🔐 **XOR Stream Cipher** | Salt + key mutation: `i = (x ^ ((y << 1) ^ (i >> 1))) & 0xFF` |
+| 🔐 **XOR Stream Cipher** | Salt + key mutation with feedback — non-linear encryption |
 | 🎲 **Polymorphic Stub** | Random function/variable names from 129-char alphabet (Latin + Cyrillic + Ukrainian) |
-| 📝 **Dead ASM Injection** | 25+ patterns: `nop`, `pause`, `clc`, `xor %rax,%rax`, `lea (%rbx), %rcx` |
+| 📝 **Dead ASM Injection** | 25+ patterns: `nop`, `pause`, `clc`, `xor`, `lea`, `push/pop` + register combinations |
 | 🔧 **Dead C Injection** | Random junk statements in SYSCALL macro, ANTIDEBUG, and loader body |
 
 ### Compilation & Linking
@@ -91,8 +91,8 @@
 
 | Feature | Description |
 |---------|-------------|
-| 💾 **Fileless Execution** | `memfd_create("", MFD_ALLOW_SEALING)` → write → `execveat(fd, "", AT_EMPTY_PATH)` |
-| 🛡️ **Anti-Debug** | Parses `/proc/self/status` for `TracerPid` (obfuscated string) |
+| 💾 **Fileless Execution** | `memfd_create` → write → seal → `execveat` with `AT_EMPTY_PATH` |
+| 🛡️ **Anti-Debug** | Parses `/proc/self/status` for `TracerPid` (obfuscated string in binary) |
 | 🔒 **PTRACE Block** | `prctl(PR_SET_PTRACER, 0)` — only children can ptrace |
 | 🚫 **No New Privs** | `prctl(PR_SET_NO_NEW_PRIVS, 1)` — prevents setuid escalation |
 | 📵 **No Core Dumps** | `prctl(PR_SET_DUMPABLE, 0)` — blocks gcore and coredumps |
@@ -122,7 +122,6 @@
 | `SQLite format 3` | SQLite |
 | `\xD0\xCF\x11\xE0` | MS Office |
 | `\x00\x61\x73\x6D` | WebAssembly |
-| `\x7F\x45\x4C\x46` | ELF (alternative) |
 | `\xFE\xED\xFA\xCE` | Mach-O (32-bit, alternative) |
 | `\xBE\xBA\xFE\xCA` | Java Class |
 | `\x99\x01` | DOS COM |
@@ -135,119 +134,38 @@
 ## 🔒 Complete Protection Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 1: ELF VALIDATION                                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ • Checks ELF magic (\x7FELF)                                                 │
-│ • Validates x86_64 architecture                                              │
-│ • Memory-maps file with MADV_SEQUENTIAL                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 2: RLE COMPRESSION                                                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Algorithm:                                                                   │
-│   • Flag byte format:                                                        │
-│     - 0x00-0x7F: literal run (1-127 bytes follow)                           │
-│     - 0x80-0xFF: repeat run (0x80 = repeat 0, 0x81 = 1, ... 0xFF = 127)     │
-│   • Minimum repeat threshold: 3 identical bytes                              │
-│   • Maximum literal run: 126 bytes                                           │
-│   • Compression ratio: 30-60% typical                                        │
-│                                                                              │
-│ Output buffer pre-allocated: size = org_sz + (org_sz // 127) + 3            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 3: XOR STREAM ENCRYPTION                                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Key generation:                                                              │
-│   • Length: 16-128 bytes (rand.randbelow(113) + 16)                         │
-│   • Content: rand.token_bytes(kln)                                           │
-│   • Salt: rand.randbelow(256)                                                │
-│                                                                              │
-│ Encryption loop (in-place):                                                  │
-│   i = salt & 0xFF                                                            │
-│   for j in range(size):                                                      │
-│       k = key[(j + i) % key_len]                                             │
-│       y = (k ^ (j & 0xFF) ^ (j >> 8)) & 0xFF                                 │
-│       x = (data[j] ^ y ^ i) & 0xFF                                           │
-│       x = ((x << 3) | (x >> 5)) & 0xFF    // rotate left 3                   │
-│       x = (x + (y ^ 0xA5)) & 0xFF                                            │
-│       data[j] = x                                                            │
-│       i = (x ^ ((y << 1) & 0xFF) ^ (i >> 1)) & 0xFF                          │
-│                                                                              │
-│ Properties:                                                                  │
-│   • State i depends on all previous bytes                                    │
-│   • Non-linear due to rotation and addition                                  │
-│   • /proc/self/status string also encrypted with same key                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 4: POLYMORPHIC LOADER GENERATION                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Random Identifiers (gen_chars):                                              │
-│   • Length: 4-254 characters                                                 │
-│   • Alphabet: 0-9, a-z, A-Z, _, а-я, А-Я, ґєії, ҐЄІЇ (129 chars)           │
-│   • First char: never a digit                                                │
-│                                                                              │
-│ Generated names:                                                             │
-│   • _bs, _be: payload start/end symbols                                      │
-│   • ex: payload pointer variable                                             │
-│   • kk: key array variable                                                   │
-│   • sc: syscall function name                                                │
-│   • lb_main, jmp_main: entry point labels                                    │
-│   • entry, section: ELF entry point and section name                         │
-│                                                                              │
-│ Obfuscated Constants:                                                        │
-│   • SYS_WRITE      = 1 ^ xor                                                 │
-│   • SYS_FCNTL      = 72 ^ salt                                               │
-│   • SYS_MLOCKALL   = 151 ^ xor                                               │
-│   • SYS_PRCTL      = 157 ^ salt                                              │
-│   • SYS_MEMFD_CREATE = (319 ^ salt) << shlmf  (shlmf = random 0-31)         │
-│   • SYS_EXECVEAT   = (322 ^ xor) << shlex   (shlex = random 0-31)           │
-│   • AT_EMPTY_PATH  = 0x1000 ^ salt                                           │
-│   • PR_SET_PTRACER = 0x59616D61 ^ xor                                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 5: C COMPILATION                                                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Compiler: MUSL (preferred) or GCC                                            │
-│                                                                              │
-│ Flags:                                                                       │
-│   -s                 Strip symbols                                           │
-│   -Os                Optimize for size                                       │
-│   -no-pie            No position-independent code                            │
-│   -nodefaultlibs     No default libraries                                    │
-│   -nostdlib          No standard library                                     │
-│   -nostartfiles      No startup files                                        │
-│   -fvisibility=hidden Hide all symbols                                       │
-│   -fomit-frame-pointer Omit frame pointer                                    │
-│   -fno-builtin       No builtin functions                                    │
-│   -fno-exceptions    No C++ exceptions                                       │
-│   -fno-stack-protector No stack protection                                   │
-│   -fno-ident         No .ident section                                       │
-│   -fno-unwind-tables No unwind tables                                        │
-│   -Wl,-O2            Linker optimization                                     │
-│   -Wl,--build-id=none No build ID                                            │
-│   -Wl,--strip-all    Strip all symbols                                       │
-│                                                                              │
-│ Linker Script:                                                               │
-│   • Base address: 0x400000 + (rand(0-255) * 0x1000)                         │
-│   • Single PT_LOAD segment with R+E permissions                              │
-│   • All other sections discarded                                             │
-│   • Random polyglot signature injected in .comment equivalent                │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ PHASE 6: SSTRIP                                                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Embedded SSTRIP binary (pre-compiled, ~13KB):                                │
-│   • Parses ELF program headers                                               │
-│   • Truncates section header table                                           │
-│   • Zeroes e_shoff, e_shnum, e_shentsize                                     │
-│   • Result: "ghost" ELF — runs but has no visible sections                   │
-└─────────────────────────────────────────────────────────────────────────────┘
+PHASE 1: ELF VALIDATION
+├── Checks ELF magic (\x7FELF)
+├── Validates x86_64 architecture
+└── Memory-maps file with MADV_SEQUENTIAL
+
+PHASE 2: RLE COMPRESSION
+├── Flag byte: 0x00-0x7F = literal run, 0x80-0xFF = repeat run
+├── Minimum repeat threshold: 3 identical bytes
+├── Maximum literal run: 126 bytes
+└── Output buffer: exact pre-allocation
+
+PHASE 3: XOR STREAM ENCRYPTION
+├── Key: 16-128 random bytes + random salt (0-255)
+├── State: i = (x ^ ((y << 1) ^ (i >> 1))) & 0xFF
+├── Operations: XOR → rotate left 3 → add (y ^ 0xA5)
+└── /proc/self/status string also encrypted
+
+PHASE 4: POLYMORPHIC LOADER GENERATION
+├── Random identifiers: 4-254 chars, 129-char alphabet
+├── Obfuscated constants: XORed and shifted syscall numbers
+├── Random dead code: 150+ ASM patterns, 11 junk per SYSCALL macro
+└── Unique linker script: random base address + random polyglot signature
+
+PHASE 5: C COMPILATION
+├── Compiler: MUSL (preferred) or GCC
+├── 20+ aggressive compiler flags for size and stealth
+└── Custom linker script with discarded sections
+
+PHASE 6: SSTRIP
+├── Embedded pre-compiled SSTRIP binary (~13KB)
+├── Truncates section header table
+└── Result: "ghost" ELF — runs but has no visible sections
 ```
 
 ## 🚀 Quick Start
@@ -311,229 +229,35 @@ python3 elfobf.py /bin/ls
 
 ### The SYSCALL Macro (One for ALL)
 
-```c
-#define SYSCALL(n, a1, a2, a3, a4, a5, a6) ({         \
-    /* junk */ long _r; /* junk */                    \
-    /* junk */ register long rax = (long)(n);         \
-    /* junk */ register long rdi = (long)(a1);        \
-    /* junk */ register long rsi = (long)(a2);        \
-    /* junk */ register long rdx = (long)(a3);        \
-    /* junk */ register long r10 = (long)(a4);        \
-    /* junk */ register long r8  = (long)(a5);        \
-    /* junk */ register long r9  = (long)(a6);        \
-    /* junk */                                        \
-    /* junk */ __asm__ volatile (                     \
-        "junk_instruction\n"                          \
-        "call %b"                                     \
-            : "=a"(_r)                                \
-            : "0"(rax),                               \
-              "r"(rdi), "r"(rsi), "r"(rdx),           \
-              "r"(r10), "r"(r8),  "r"(r9)             \
-            : "rcx", "r11", "memory"                  \
-    );                                                \
-    /* junk */ _r;                                    \
-})
-```
-
-**Key insights:**
-- **Every syscall** uses this single macro
-- **11 random junk statements** injected per macro expansion
-- Syscall is made via `call %b` to a trampoline function `sc()`
-- The trampoline contains random junk before/after `syscall` instruction
-- Clobbers `rcx` and `r11` (x86_64 syscall convention)
+A single unified macro handles every system call in the loader. Each expansion injects 11 random junk statements. The syscall is made via `call` to a trampoline function that contains random dead code before and after the `syscall` instruction. Clobbers `rcx` and `r11` per x86_64 ABI.
 
 ### The Syscall Trampoline
 
-```c
-static void sc(void); __asm__ (
-    ".section .text\n"
-    ".hidden %b\n"
-    "%b:\n"
-    "    junk_instruction\n"
-    "    syscall\n"
-    "    junk_instruction\n"
-    "    ret\n"
-);
-```
+A dedicated static function with `.hidden` visibility contains the actual `syscall` instruction, surrounded by random junk ASM. This centralizes all syscalls through one obfuscated gate.
 
 ### RLE Decompression (Runtime)
 
-```c
-while (i < x) {
-    uchar c = DEC(ex[i], i, kk, y, g); i++;
-    
-    if (c & 0x80) {     
-        // Repeat run
-        uint l = c & 0x7F;
-        uchar v = DEC(ex[i], i, kk, y, g); i++;
-        
-        while (l--) {
-            if (p == CHUNK) {
-                SWRITE(d, o, CHUNK);
-                ZEROS(o, CHUNK);
-                p = 0;
-            }
-            o[p++] = v;
-        }
-    } else {              
-        // Literal run
-        uint l = c;
-        
-        while (l--) {
-            if (p == CHUNK) {
-                SWRITE(d, o, CHUNK);
-                ZEROS(o, CHUNK);
-                p = 0;
-            }
-            o[p++] = DEC(ex[i], i, kk, y, g); i++;
-        }
-    }
-}
-```
+The decompressor processes the encrypted payload byte-by-byte. Each byte is first decrypted via the DEC macro, then interpreted as either a repeat run (0x80 flag set) or literal run. Output is written in 4KB chunks to the sealed memory file descriptor.
 
 ### DEC Macro (Decrypt Single Byte)
 
-```c
-#define DEC(b, j, k, l, g) ({                                         \
-    uchar _b = (uchar)(b);                                            \
-    uchar _i = (uchar)(g);                                            \
-    uchar _k = (k)[ ((j) + _i) % (l) ];                               \
-    uchar _y = ( _k ^ ((j) & 0xFF) ^ ((j) >> 8) ) & 0xFF;             \
-    uchar _r = _b;                                                    \
-                                                                      \
-    _r  = (uchar)( (_r - (_y ^ 0xA5)) & 0xFF );                       \
-    _r  = (uchar)( ((_r >> 3) | (_r << 5)) & 0xFF );                  \
-    _r  = (uchar)( _r ^ _y ^ _i );                                    \
-    (g) = (uchar)( (_b ^ ((_y << 1) & 0xFF) ^ (_i >> 1)) & 0xFF );    \
-                                                                      \
-    _r;                                                               \
-})
-```
-
-**Note:** This is the **inverse** of the encryption function:
-1. Subtract `(y ^ 0xA5)`
-2. Rotate right 3 (inverse of left 3)
-3. XOR with `y` and `i`
-4. Update state `g`
+The inverse of the encryption function: subtract `(y ^ 0xA5)`, rotate right 3, XOR with derived key and state. The state `g` is updated with a non-linear feedback function: `g = (b ^ ((y << 1) ^ (i >> 1))) & 0xFF`.
 
 ### ANTIDEBUG Macro
 
-```c
-#define ANTIDEBUG() ({                                                \
-    /* junk */ uchar _r; /* junk */                                   \
-    uchar _e[] = PST;  // encrypted "/proc/self/status"               \
-    uint  _l   = sizeof(_e);                                          \
-    char  *_b  = __builtin_alloca(SIZE);                              \
-    char  *_p  = _b;                                                  \
-    uint   _y  = sizeof(kk);                                          \
-    uint   _g  = SALT;                                                \
-                                                                      \
-    /* Decrypt PST string */                                          \
-    for (uint _j = 0; _j < _l; _j++)                                  \
-        *(_p++) = DEC(_e[_j], _j, kk, _y, _g);                        \
-    *_p = '\0';                                                       \
-                                                                      \
-    int _d = SYSCALL(SYS_OPENAT, AT_FDCWD, _b, O_RDONLY, ...);        \
-    if (_d < 0) { _r = 0; goto _ret; }                                \
-                                                                      \
-    int _n = SYSCALL(SYS_READ, _d, _b, SIZE-1, ...);                  \
-    SYSCALL(SYS_CLOSE, _d, ...);                                      \
-                                                                      \
-    if (_n < 0 || _n < 12) { _r = 5; goto _ret; }                     \
-                                                                      \
-    _b[_n] = '\0';                                                    \
-    volatile uchar _x = SALT, _z = XOR;                               \
-                                                                      \
-    /* Search for "TracerPid:" pattern (obfuscated) */                \
-    for (uint _i = 0; _i < (_n - 12); _i++) {                         \
-        if (                                                          \
-            ((uchar)_b[_i] == (uchar)('T'^_z)) &&                     \
-            ((uchar)_b[_i+6] == (uchar)('P'^_x)) &&                   \
-            ((uchar)_b[_i+9] == (uchar)(':'^_z))                      \
-        ) {                                                           \
-            char *_s = &_b[_i + 10];                                  \
-            while (*_s == (' '^_z) || *_s == ('\t'^_x)) _s++;         \
-            _r = (uchar)*_s ^ (uchar)('0'^_z);                        \
-            goto _ret;                                                \
-        }                                                             \
-    }                                                                 \
-    _r = 13;                                                          \
-_ret:                                                                 \
-    ZEROS(_e, _l); ZEROS(_b, SIZE);                                   \
-    _r;                                                               \
-})
-```
-
-**Key insights:**
-- `/proc/self/status` string is **encrypted in the binary**
-- Pattern searched is **obfuscated**: `'T'^xor`, `'P'^salt`, `':'^xor`
-- Returns `TracerPid` value (0 = no debugger, >0 = debugger attached)
-- Memory is zeroed before return
+The string `/proc/self/status` is encrypted in the binary. The macro decrypts it at runtime, opens the file, and searches for an obfuscated `TracerPid:` pattern (each character XORed with different keys). Returns the TracerPid value: 0 = clean, >0 = debugger detected. All buffers are securely zeroed before return.
 
 ### Fileless Execution
 
-```c
-// Create anonymous in-memory file
-int d = SYSCALL((SYS_MEMFD_CREATE>>_f)^q, "", MFD_ALLOW_SEALING, ...);
-
-// Decrypt and write payload in 4KB chunks
-while (i < x) {
-    // ... RLE decompression ...
-    if (p == CHUNK) {
-        SWRITE(d, o, CHUNK);
-        ZEROS(o, CHUNK);
-        p = 0;
-    }
-    o[p++] = byte;
-}
-if (p > 0) SWRITE(d, o, p);
-
-// Seal file to prevent modification
-SYSCALL(SYS_FCNTL^q, d, F_ADD_SEALS, F_SEALS_ALL, ...);
-
-// Rewind
-SYSCALL(SYS_LSEEK, d, 0, SEEK_SET, ...);
-
-// Execute directly from memory!
-SYSCALL((SYS_EXECVEAT>>_q)^f, d, "", argv, envp, AT_EMPTY_PATH^q, ...);
-```
+The payload is decrypted and decompressed directly into a memory file descriptor created via `memfd_create`. The fd is then sealed with `F_SEAL_ALL` to prevent any modification before execution via `execveat` with `AT_EMPTY_PATH`.
 
 ### ZEROS Macro (Secure Memory Wipe)
 
-```c
-#define ZEROS(b, l) do {                     \
-    void *_p = (uchar*)(b) + ((l) - 8);      \
-    long  _c = (long)(l) >> 3;               \
-                                             \
-    __asm__ volatile (                       \
-        "std\n"                              /* Set direction flag (reverse) */ \
-        "rep stosq\n"                        /* Store RAX (0) _c times */       \
-        "cld\n"                              /* Clear direction flag */          \
-        : "=D"(_p), "=c"(_c)                 \
-        : "0"(_p),  "1"(_c), "a"(0)          \
-        : "memory"                           \
-    );                                       \
-} while (0)
-```
-
-**Why reverse?** Harder for memory forensics to recover.
+Uses `rep stosq` in reverse direction (DF=1) to zero sensitive buffers. Reverse direction makes memory forensics recovery harder.
 
 ### Dead Code Injection Patterns
 
-```python
-JUNK = [
-    b'nop', b'fnop', b'wait', b'pause', b'cld', b'clc', b'std\n\tcld', b'stc\n\tclc',
-    # Register operations (generated combinatorially)
-    b'or %b, %b', b'and %b, %b', b'not %b\n\tnot %b',
-    b'neg %b\n\tneg %b', b'add $0, %b', b'sub $0, %b',
-    b'shl $0, %b', b'shr $0, %b', b'rol $0, %b', b'ror $0, %b',
-    b'test %b, %b', b'xchg %b, %b', b'mov %b, %b',
-    b'push %b\n\tpop %b', b'lea (%b), %b'
-]
-
-# Generated for all registers: rax, rbx, rcx, rdx, rsi, rdi, r8, r9, r10, r11
-# Total: 10 registers × 15 patterns = 150+ combinations
-```
+25+ base ASM patterns combined with 10 registers generate 150+ unique dead code combinations at build time. Additionally, the C code is peppered with random statements between every meaningful line.
 
 ### Builder Optimizations
 
@@ -592,25 +316,25 @@ original_elf  →  elfobf-original_elf
 
 ## 📋 Обзор
 
-**ELF-OBF** — это инструмент обфускации ELF-бинарников **военного уровня**, который превращает стандартные исполняемые файлы Linux в **сильно бронированные, саморасшифровывающиеся бинарники с бесфайловым выполнением**.
+**ELF-OBF** — инструмент обфускации ELF-бинарников военного уровня, который превращает стандартные исполняемые файлы Linux в сильно бронированные, саморасшифровывающиеся бинарники с бесфайловым выполнением.
 
 ### Что делает его уникальным?
 
 | Компонент | Реализация |
 |-----------|------------|
-| **Единый макрос SYSCALL** | Один `SYSCALL(n, a1...a6)` для ВСЕХ системных вызовов |
-| **Обфусцированные номера syscall** | XOR со случайным ключом на этапе компиляции |
+| **Единый макрос SYSCALL** | Один для ВСЕХ системных вызовов — уменьшает размер кода, централизует обфускацию |
+| **Обфусцированные номера syscall** | XOR со случайным ключом — в бинарнике нет открытых номеров |
 | **Сдвинутые номера syscall** | `memfd_create` и `execveat` сдвинуты на случайные биты |
-| **RLE-сжатие** | Кастомное побайтовое кодирование длин серий |
-| **Потоковый XOR-шифр** | Ключ 16-128 байт + соль + обратная связь |
-| **Полиморфный C-заглушка** | 100% уникальна для каждой сборки |
-| **Впрыск мёртвого кода** | 25+ ASM-паттернов + 15+ паттернов операций с регистрами |
-| **Интеграция SSTRIP** | Встроенный предскомпилированный SSTRIP |
+| **RLE-сжатие** | Кастомное побайтовое кодирование — типичное сжатие 30-60% |
+| **Потоковый XOR-шифр** | Ключ 16-128 байт + соль + обратная связь — каждый байт зависит от предыдущих |
+| **Полиморфный C-стаб** | 100% уникален для каждой сборки — имена из 129-символьного алфавита |
+| **Впрыск мёртвого кода** | 150+ комбинаторных ASM-паттернов + случайный мусор в C |
+| **Интеграция SSTRIP** | Встроенный предскомпилированный SSTRIP — полное удаление заголовков секций |
 | **Полиглот-сигнатуры** | 27 различных заголовков форматов файлов |
-| **Бесфайловое выполнение** | `memfd_create` + `execveat` с `AT_EMPTY_PATH` |
+| **Бесфайловое выполнение** | `memfd_create` + `execveat` с `AT_EMPTY_PATH` — нулевой след на диске |
 | **Анти-отладка** | Проверка TracerPid + PR_SET_PTRACER + PR_SET_DUMPABLE |
 | **Защита памяти** | mlockall(MCL_ALL) + F_SEAL_ALL |
-| **Высокооптимизированный билдер** | Memoryviews, предскомпилированный SSTRIP, однопроходное сжатие |
+| **Оптимизированный билдер** | Memoryviews, предскомпилированный SSTRIP, однопроходное сжатие, контроль GC |
 
 ## ✨ Возможности
 
@@ -619,9 +343,9 @@ original_elf  →  elfobf-original_elf
 | Возможность | Описание |
 |-------------|----------|
 | 🗜️ **RLE-сжатие** | Побайтовое RLE с флагом 0x80, типичное сжатие 30-60% |
-| 🔐 **Потоковый XOR-шифр** | Соль + мутация ключа: `i = (x ^ ((y << 1) ^ (i >> 1))) & 0xFF` |
-| 🎲 **Полиморфная заглушка** | Случайные имена из 129-символьного алфавита |
-| 📝 **Впрыск мёртвого ASM** | 25+ паттернов: `nop`, `pause`, `clc`, `xor %rax,%rax`, `lea (%rbx), %rcx` |
+| 🔐 **Потоковый XOR-шифр** | Соль + мутация ключа с обратной связью — нелинейное шифрование |
+| 🎲 **Полиморфная заглушка** | Случайные имена из 129-символьного алфавита (латиница + кириллица + украинский) |
+| 📝 **Впрыск мёртвого ASM** | 25+ паттернов + комбинации с 10 регистрами = 150+ вариантов |
 | 🔧 **Впрыск мёртвого C** | Случайный мусор в макросе SYSCALL, ANTIDEBUG и теле загрузчика |
 
 ### Компиляция и линковка
@@ -637,8 +361,8 @@ original_elf  →  elfobf-original_elf
 
 | Возможность | Описание |
 |-------------|----------|
-| 💾 **Бесфайловое выполнение** | `memfd_create("", MFD_ALLOW_SEALING)` → запись → `execveat(fd, "", AT_EMPTY_PATH)` |
-| 🛡️ **Анти-отладка** | Парсинг `/proc/self/status` для `TracerPid` (обфусцированная строка) |
+| 💾 **Бесфайловое выполнение** | `memfd_create` → запись → seal → `execveat` с `AT_EMPTY_PATH` |
+| 🛡️ **Анти-отладка** | Парсинг `/proc/self/status` для `TracerPid` (строка зашифрована в бинарнике) |
 | 🔒 **Блокировка PTRACE** | `prctl(PR_SET_PTRACER, 0)` — только потомки могут трассировать |
 | 🚫 **Запрет новых привилегий** | `prctl(PR_SET_NO_NEW_PRIVS, 1)` |
 | 📵 **Запрет core-дампов** | `prctl(PR_SET_DUMPABLE, 0)` |
@@ -662,46 +386,27 @@ python3 elfobf.py /bin/ls
 
 ### Макрос SYSCALL (Один на ВСЕ)
 
-*(См. английскую версию для кода)*
-
-**Ключевые моменты:**
-- **Каждый системный вызов** использует этот единый макрос
-- **11 случайных мусорных инструкций** внедряется при каждом раскрытии
-- Системный вызов делается через `call %b` к функции-трамплину `sc()`
-- Трамплин содержит случайный мусор до и после `syscall`
+Единый унифицированный макрос обрабатывает каждый системный вызов в загрузчике. Каждое раскрытие впрыскивает 11 случайных мусорных инструкций. Системный вызов делается через `call` к функции-трамплину, которая содержит случайный мёртвый код до и после инструкции `syscall`.
 
 ### RLE-распаковка (во время выполнения)
 
-*(См. английскую версию для кода)*
+Распаковщик обрабатывает зашифрованные данные побайтово. Каждый байт сначала расшифровывается через макрос DEC, затем интерпретируется как повторяющаяся серия (флаг 0x80) или литеральная серия. Вывод пишется чанками по 4 КБ в запечатанный файловый дескриптор в памяти.
 
 ### Макрос DEC (Расшифровка одного байта)
 
-*(См. английскую версию для кода)*
-
-**Обратная функция шифрования:**
-1. Вычитание `(y ^ 0xA5)`
-2. Поворот вправо на 3
-3. XOR с `y` и `i`
-4. Обновление состояния `g`
+Обратная функция шифрования: вычитание `(y ^ 0xA5)`, поворот вправо на 3, XOR с производным ключом и состоянием. Состояние `g` обновляется нелинейной функцией с обратной связью: `g = (b ^ ((y << 1) ^ (i >> 1))) & 0xFF`.
 
 ### Макрос ANTIDEBUG
 
-*(См. английскую версию для кода)*
-
-**Ключевые моменты:**
-- Строка `/proc/self/status` **зашифрована в бинарнике**
-- Ищется обфусцированный паттерн: `'T'^xor`, `'P'^salt`, `':'^xor`
-- Возвращает значение `TracerPid` (0 = нет отладчика, >0 = есть)
+Строка `/proc/self/status` зашифрована в бинарнике. Макрос расшифровывает её во время выполнения, открывает файл и ищет обфусцированный паттерн `TracerPid:` (каждый символ XOR с разными ключами). Возвращает значение TracerPid: 0 = чисто, >0 = обнаружен отладчик. Все буферы безопасно затираются перед возвратом.
 
 ### Бесфайловое выполнение
 
-*(См. английскую версию для кода)*
+Полезная нагрузка расшифровывается и распаковывается напрямую в файловый дескриптор в памяти, созданный через `memfd_create`. Затем fd запечатывается с `F_SEAL_ALL` для предотвращения любых модификаций перед выполнением через `execveat` с `AT_EMPTY_PATH`.
 
 ### Макрос ZEROS (Безопасное затирание памяти)
 
-*(См. английскую версию для кода)*
-
-**Почему в обратном направлении?** Сложнее для memory forensics.
+Использует `rep stosq` в обратном направлении (DF=1) для затирания чувствительных буферов. Обратное направление усложняет восстановление memory forensics.
 
 ### Оптимизации билдера
 
@@ -749,7 +454,7 @@ python3 elfobf.py /bin/ls
 
 <div align="center">
 
-**[⬆ Back to Top](#-elf-obf)**
+**[⬆ Back to Top](#-elfobf)**
 
 *ELF Obfuscation for Linux*
 
